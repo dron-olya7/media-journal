@@ -1,9 +1,10 @@
 import { createStore } from 'vuex'
+import api from '@/api/auth'
 
 const store = createStore({
   state() {
     return {
-      isAuthenticated: false,
+      isAuthenticated: localStorage.getItem('token') !== null,
       currentUser: null,
       token: localStorage.getItem('token') || null
     }
@@ -11,92 +12,74 @@ const store = createStore({
   
   mutations: {
     SET_AUTH(state, { user, token }) {
-      state.isAuthenticated = true
-      state.currentUser = user
-      state.token = token
-      if (token) {
-        localStorage.setItem('token', token)
-      }
+      state.isAuthenticated = true;
+      state.currentUser = user;
+      state.token = token;
+      localStorage.setItem('token', token);
     },
     
     CLEAR_AUTH(state) {
-      state.isAuthenticated = false
-      state.currentUser = null
-      state.token = null
-      localStorage.removeItem('token')
-    },
-    
-    UPDATE_USER(state, user) {
-      state.currentUser = user
+      state.isAuthenticated = false;
+      state.currentUser = null;
+      state.token = null;
+      localStorage.removeItem('token');
     }
   },
   
   actions: {
     async login({ commit }, credentials) {
       try {
-        // Замените на реальный API-вызов
-        console.log('Логин с:', credentials)
+        const data = await api.login(credentials);
         
-        // Имитация ответа API
-        const mockResponse = {
-          user: {
-            id: 1,
-            username: credentials.username,
-            email: 'user@example.com'
-          },
-          token: 'mock-jwt-token-12345'
+        if (!data.success) {
+          throw new Error(data.error || 'Ошибка авторизации');
         }
         
-        await new Promise(resolve => setTimeout(resolve, 500)) // Имитация задержки
-        
         commit('SET_AUTH', {
-          user: mockResponse.user,
-          token: mockResponse.token
-        })
+          user: data.user,
+          token: data.token
+        });
         
-        return mockResponse
+        return data;
       } catch (error) {
-        throw new Error('Ошибка авторизации')
+        throw error;
       }
     },
     
     async register({ commit }, userData) {
       try {
-        // Замените на реальный API-вызов
-        console.log('Регистрация:', userData)
+        const data = await api.register(userData);
         
-        // Имитация ответа API
-        const mockResponse = {
-          user: {
-            id: 2,
-            username: userData.username,
-            email: userData.email
-          },
-          message: 'Регистрация успешна'
+        if (!data.success) {
+          throw new Error(data.error || 'Ошибка регистрации');
         }
         
-        await new Promise(resolve => setTimeout(resolve, 500))
-        
-        return mockResponse
+        return data;
       } catch (error) {
-        throw new Error('Ошибка регистрации')
+        throw error;
       }
     },
     
     logout({ commit }) {
-      commit('CLEAR_AUTH')
+      commit('CLEAR_AUTH');
     },
     
-    checkAuth({ commit, state }) {
-      if (state.token) {
-        // Здесь можно проверить токен на сервере
-        // Пока просто считаем, что если есть токен - пользователь авторизован
-        const mockUser = {
-          id: 1,
-          username: 'demo_user',
-          email: 'demo@example.com'
+    async checkAuth({ commit, state }) {
+      if (!state.token) return;
+      
+      try {
+        const data = await api.verifyToken();
+        
+        if (data.user) {
+          commit('SET_AUTH', {
+            user: data.user,
+            token: state.token
+          });
+        } else {
+          commit('CLEAR_AUTH');
         }
-        commit('SET_AUTH', { user: mockUser, token: state.token })
+      } catch (error) {
+        commit('CLEAR_AUTH');
       }
     }
   },
@@ -106,6 +89,6 @@ const store = createStore({
     currentUser: state => state.currentUser,
     token: state => state.token
   }
-})
+});
 
-export default store
+export default store;

@@ -12,27 +12,25 @@
         <span class="default-text">{{ item.title.charAt(0) }}</span>
       </div>
 
-      <!-- Рейтинг на постере -->
-      <div class="poster-rating">
-        {{ item.rating }}/10
+      <!-- Тип медиа слева, рейтинг справа -->
+      <div class="poster-info">
+        <div class="poster-type" :class="item.type">
+          {{ typeEmoji }}
+        </div>
+        <div class="poster-rating" :class="item.type">{{ item.rating }}/10</div>
       </div>
     </div>
 
     <!-- Содержимое карточки -->
     <div class="card-content">
       <div class="card-header">
-        <div class="type-badge" :class="item.type">
-          {{ typeEmoji }}
-        </div>
         <h3 class="title">{{ item.title }}</h3>
       </div>
 
       <div class="year" v-if="item.year">{{ item.year }} год</div>
 
       <div class="genres">
-        <span v-for="(genre, index) in item.genres"
-              :key="index"
-              class="genre">
+        <span v-for="(genre, index) in item.genres" :key="index" class="genre">
           {{ genre }}
         </span>
       </div>
@@ -40,24 +38,24 @@
       <div class="status" :class="item.status">
         {{ statusText }}
       </div>
-      
+
       <!-- Даты -->
       <div class="dates">
         <div v-if="item.date_added" class="date-added">
-          📅 {{ formatDate(item.date_added) }}
+          {{ formatDate(item.date_added) }}
         </div>
         <div v-if="item.date_modified" class="date-modified">
-          ✏️ {{ formatDate(item.date_modified) }}
+          {{ formatDate(item.date_modified) }}
         </div>
       </div>
 
       <!-- КНОПКИ УПРАВЛЕНИЯ -->
       <div class="card-actions">
         <button class="btn-edit" @click="$emit('edit', item)">
-          ✏️ Редактировать
+          Редактировать
         </button>
         <button class="btn-delete" @click="$emit('delete', item)">
-          🗑️ Удалить
+          Удалить
         </button>
       </div>
     </div>
@@ -66,43 +64,52 @@
 
 <script>
 export default {
-  name: 'MediaCard',
+  name: "MediaCard",
   props: {
     item: {
       type: Object,
-      required: true
-    }
+      required: true,
+    },
   },
   computed: {
     typeEmoji() {
-      switch(this.item.type) {
-        case 'movie': return '🎬'
-        case 'book': return '📚'
-        case 'series': return '📺'
-        default: return '📌'
+      switch (this.item.type) {
+        case "movie":
+          return "фильм";
+        case "book":
+          return "книга";
+        case "series":
+          return "сериал";
+        default:
+          return "";
       }
     },
     statusText() {
-      switch(this.item.status) {
-        case 'watched': return 'Просмотрено'
-        case 'reading': return 'Читаю'
-        case 'planned': return 'В планах'
-        case 'completed': return 'Прочитано'
-        default: return this.item.status
+      switch (this.item.status) {
+        case "watched":
+          return "Просмотрено";
+        case "reading":
+          return "Читаю";
+        case "planned":
+          return "В планах";
+        case "completed":
+          return "Прочитано";
+        default:
+          return this.item.status;
       }
-    }
+    },
   },
   methods: {
     formatDate(dateString) {
-      const date = new Date(dateString)
-      return date.toLocaleDateString('ru-RU', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      })
-    }
-  }
-}
+      const date = new Date(dateString);
+      return date.toLocaleDateString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+    },
+  },
+};
 </script>
 
 <style scoped>
@@ -162,13 +169,60 @@ export default {
   opacity: 0.8;
 }
 
-.poster-rating {
+/* Контейнер для типа и рейтинга */
+.poster-info {
   position: absolute;
   top: 10px;
-  right: 10px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 10px;
+  pointer-events: none;
+}
+
+/* Стили для типа медиа (слева) */
+.poster-type {
+  color: white;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.poster-type.movie {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.poster-type.book {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+}
+
+.poster-type.series {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+/* Цвета для разных типов */
+.poster-type.movie {
+  background: rgba(44, 55, 104, 0.9);
+}
+
+.poster-type.book {
+  background: rgba(109, 68, 114, 0.9);
+}
+
+.poster-type.series {
+  background: rgba(48, 77, 102, 0.9);
+}
+
+/* Стили для рейтинга (справа) */
+.poster-rating {
   background: rgba(0, 0, 0, 0.8);
   color: white;
-  padding: 4px 8px;
+  padding: 4px 10px;
   border-radius: 4px;
   font-weight: bold;
   font-size: 14px;
@@ -188,9 +242,9 @@ export default {
   margin-bottom: 10px;
 }
 
+/* Удаляем старый type-badge из карточки, так как он теперь на постере */
 .type-badge {
-  font-size: 20px;
-  flex-shrink: 0;
+  display: none;
 }
 
 .title {
@@ -295,5 +349,22 @@ export default {
 
 .btn-delete:hover {
   background: #ffcdd2;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .poster-info {
+    flex-direction: column;
+    gap: 5px;
+    align-items: flex-start;
+  }
+  
+  .poster-rating {
+    align-self: flex-end;
+  }
+  
+  .poster-type {
+    font-size: 12px;
+  }
 }
 </style>

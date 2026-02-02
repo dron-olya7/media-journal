@@ -3,33 +3,124 @@
     <header class="header">
       <h1>🎬 MediaJournal</h1>
       <p class="subtitle">Твой личный трекер фильмов, книг и сериалов</p>
-      
-      <!-- Управление базой -->
-      <div class="database-controls">
-        <button class="db-btn reload" @click="loadData" :disabled="loading">
-          <span v-if="loading" class="btn-spinner"></span>
-          <span v-else>🔄</span> Обновить
-        </button>
-        <button class="db-btn export" @click="exportData" :disabled="items.length === 0">
-          💾 Экспорт
-        </button>
-        <button class="db-btn stats" @click="loadStats" :disabled="loading">
-          📊 Статистика
-        </button>
-      </div>
-      
-      <!-- Статус базы -->
-      <div class="db-status" v-if="!loading">
-        <span class="db-stat">🗄️ SQLite база: {{ stats.total }} записей</span>
-        <span class="db-stat">🎬 {{ stats.movies }} фильмов</span>
-        <span class="db-stat">📚 {{ stats.books }} книг</span>
-        <span class="db-stat">📺 {{ stats.series }} сериалов</span>
-        <span class="db-stat connected">🟢 Сервер подключен</span>
-      </div>
     </header>
 
     <div class="collection">
-      <h2>Моя коллекция ({{ items.length }})</h2>
+      <!-- Панель управления сортировкой и фильтрацией -->
+      <div class="controls-panel">
+        <h2>Моя коллекция ({{ filteredItems.length }}/{{ items.length }})</h2>
+
+        <div class="filters">
+          <!-- Поиск -->
+          <div class="search-box">
+            <input
+              type="text"
+              v-model="searchQuery"
+              placeholder="Поиск по названию..."
+              class="search-input"
+            />
+            <button
+              v-if="searchQuery"
+              @click="searchQuery = ''"
+              class="clear-search"
+            >
+              ✕
+            </button>
+          </div>
+
+          <!-- Фильтры -->
+          <div class="filter-group">
+            <label>Тип:</label>
+            <div class="filter-buttons">
+              <button
+                v-for="type in filterTypes"
+                :key="type.value"
+                :class="{ active: filters.type === type.value }"
+                @click="toggleFilter('type', type.value)"
+              >
+                {{ type.icon }} {{ type.label }}
+              </button>
+              <button
+                :class="{ active: filters.type === 'all' }"
+                @click="toggleFilter('type', 'all')"
+              >
+                Все
+              </button>
+            </div>
+          </div>
+
+          <div class="filter-group">
+            <label>Статус:</label>
+            <div class="filter-buttons">
+              <button
+                v-for="status in filterStatuses"
+                :key="status.value"
+                :class="{ active: filters.status === status.value }"
+                @click="toggleFilter('status', status.value)"
+              >
+                {{ status.label }}
+              </button>
+              <button
+                :class="{ active: filters.status === 'all' }"
+                @click="toggleFilter('status', 'all')"
+              >
+                Все
+              </button>
+            </div>
+          </div>
+
+          <!-- Сортировка -->
+          <div class="sort-group">
+            <label>Сортировка:</label>
+            <select v-model="sortBy" class="sort-select">
+              <option value="date_added">По дате добавления (новые)</option>
+              <option value="date_added_asc">
+                По дате добавления (старые)
+              </option>
+              <option value="title">По названию (А-Я)</option>
+              <option value="title_desc">По названию (Я-А)</option>
+              <option value="year">По году (новые)</option>
+              <option value="year_asc">По году (старые)</option>
+              <option value="rating">По рейтингу (высокий)</option>
+              <option value="rating_asc">По рейтингу (низкий)</option>
+            </select>
+
+            <button
+              @click="toggleSortOrder"
+              class="sort-order-btn"
+              :title="sortAscending ? 'По возрастанию' : 'По убыванию'"
+            >
+              {{ sortAscending ? "⇧" : "⇩" }}
+            </button>
+          </div>
+
+          <!-- Сброс фильтров -->
+          <button
+            @click="resetFilters"
+            class="reset-filters-btn"
+            v-if="hasActiveFilters"
+          >
+            Сбросить фильтры
+          </button>
+        </div>
+
+        <!-- Активные фильтры -->
+        <div class="active-filters" v-if="hasActiveFilters">
+          <span class="active-filters-label">Активные фильтры:</span>
+          <span v-if="filters.type !== 'all'" class="filter-tag">
+            {{ getFilterTypeLabel(filters.type) }}
+            <button @click="toggleFilter('type', 'all')">×</button>
+          </span>
+          <span v-if="filters.status !== 'all'" class="filter-tag">
+            {{ getFilterStatusLabel(filters.status) }}
+            <button @click="toggleFilter('status', 'all')">×</button>
+          </span>
+          <span v-if="searchQuery" class="filter-tag">
+            Поиск: "{{ searchQuery }}"
+            <button @click="searchQuery = ''">×</button>
+          </span>
+        </div>
+      </div>
 
       <!-- Загрузка -->
       <div v-if="loading" class="loading">
@@ -47,15 +138,55 @@
         </button>
       </div>
 
+      <!-- Нет результатов -->
+      <div v-else-if="filteredItems.length === 0" class="no-results">
+        <div class="no-results-icon"></div>
+        <h3>Ничего не найдено</h3>
+        <p>Попробуйте изменить параметры поиска или фильтры</p>
+        <button class="btn-reset-filters" @click="resetFilters">
+          Сбросить фильтры
+        </button>
+      </div>
+
       <!-- Карточки -->
       <div v-else class="cards-grid">
-        <MediaCard 
-          v-for="item in items" 
-          :key="item.id" 
+        <MediaCard
+          v-for="item in paginatedItems"
+          :key="item.id"
           :item="item"
           @edit="editMedia"
           @delete="showDeleteConfirmation"
         />
+      </div>
+
+      <!-- Пагинация -->
+      <div class="pagination" v-if="filteredItems.length > itemsPerPage">
+        <button
+          @click="prevPage"
+          :disabled="currentPage === 1"
+          class="pagination-btn"
+        >
+          ◀
+        </button>
+
+        <span class="page-info">
+          Страница {{ currentPage }} из {{ totalPages }}
+        </span>
+
+        <button
+          @click="nextPage"
+          :disabled="currentPage === totalPages"
+          class="pagination-btn"
+        >
+          ▶
+        </button>
+
+        <select v-model="itemsPerPage" class="page-size-select">
+          <option value="10">10 на странице</option>
+          <option value="20">20 на странице</option>
+          <option value="50">50 на странице</option>
+          <option value="100">100 на странице</option>
+        </select>
       </div>
     </div>
 
@@ -93,7 +224,7 @@
       title="Удаление записи"
       :message="deleteConfirmMessage"
       :details="deleteConfirmDetails"
-      icon="🗑️"
+      icon=""
       confirmText="Удалить"
       cancelText="Отмена"
       danger
@@ -102,23 +233,30 @@
     />
 
     <!-- Кнопка добавления -->
-    <button class="add-btn" @click="showAddForm = true">+</button>
+    <button
+      class="add-btn"
+      @click="showAddForm = true"
+      title="Добавить новую запись"
+    >
+      +
+    </button>
   </div>
 </template>
 
 <script>
-import MediaCard from '@/components/media/MediaCard.vue'
-import AddMediaForm from '@/components/media/AddMediaForm.vue'
-import NotificationPopup from '@/components/NotificationPopup.vue'
-import ConfirmationPopup from '@/components/ConfirmationPopup.vue'
+import MediaCard from "@/components/media/MediaCard.vue";
+import AddMediaForm from "@/components/media/AddMediaForm.vue";
+import NotificationPopup from "@/components/NotificationPopup.vue";
+import ConfirmationPopup from "@/components/ConfirmationPopup.vue";
+import api from "@/api/auth";
 
 export default {
-  name: 'HomeView',
+  name: "HomeView",
   components: {
     MediaCard,
     AddMediaForm,
     NotificationPopup,
-    ConfirmationPopup
+    ConfirmationPopup,
   },
   data() {
     return {
@@ -126,226 +264,597 @@ export default {
       items: [],
       showAddForm: false,
       editingItem: null,
-      
+      isConnected: true,
+
+      // Фильтры и сортировка
+      searchQuery: "",
+      filters: {
+        type: "all",
+        status: "all",
+      },
+      sortBy: "date_added",
+      sortAscending: false,
+
+      // Пагинация
+      currentPage: 1,
+      itemsPerPage: 20,
+
+      // Данные для фильтров
+      filterTypes: [
+        { value: "movie", label: "Фильмы", icon: "" },
+        { value: "book", label: "Книги", icon: "" },
+        { value: "series", label: "Сериалы", icon: "" },
+      ],
+      filterStatuses: [
+        { value: "watched", label: "Просмотрено" },
+        { value: "reading", label: "Читаю" },
+        { value: "planned", label: "В планах" },
+        { value: "completed", label: "Прочитано" },
+      ],
+
       stats: {
         total: 0,
         movies: 0,
         books: 0,
-        series: 0
+        series: 0,
       },
-      
+
       notification: {
         visible: false,
-        type: 'success',
-        title: '',
-        message: ''
+        type: "success",
+        title: "",
+        message: "",
       },
-      
+
       showDeleteConfirm: false,
       itemToDelete: null,
-      deleteConfirmDetails: null
-    }
+      deleteConfirmDetails: null,
+    };
   },
-  
+
   computed: {
     deleteConfirmMessage() {
-      return 'Вы уверены, что хотите удалить эту запись?'
+      return "Вы уверены, что хотите удалить эту запись?";
+    },
+
+    isAuthenticated() {
+      return api.isAuthenticated();
+    },
+
+    // Отфильтрованные элементы
+    filteredItems() {
+      return this.items.filter((item) => {
+        // Поиск по названию
+        if (
+          this.searchQuery &&
+          !item.title.toLowerCase().includes(this.searchQuery.toLowerCase())
+        ) {
+          return false;
+        }
+
+        // Фильтр по типу
+        if (this.filters.type !== "all" && item.type !== this.filters.type) {
+          return false;
+        }
+
+        // Фильтр по статусу
+        if (
+          this.filters.status !== "all" &&
+          item.status !== this.filters.status
+        ) {
+          return false;
+        }
+
+        return true;
+      });
+    },
+
+    // Отсортированные элементы
+    sortedItems() {
+      const items = [...this.filteredItems];
+
+      switch (this.sortBy) {
+        case "date_added":
+          return items.sort((a, b) => {
+            const dateA = new Date(a.date_added || 0);
+            const dateB = new Date(b.date_added || 0);
+            return this.sortAscending ? dateA - dateB : dateB - dateA;
+          });
+
+        case "date_added_asc":
+          return items.sort((a, b) => {
+            const dateA = new Date(a.date_added || 0);
+            const dateB = new Date(b.date_added || 0);
+            return dateA - dateB;
+          });
+
+        case "title":
+          return items.sort((a, b) => {
+            const titleA = a.title.toLowerCase();
+            const titleB = b.title.toLowerCase();
+            return this.sortAscending
+              ? titleB.localeCompare(titleA)
+              : titleA.localeCompare(titleB);
+          });
+
+        case "title_desc":
+          return items.sort((a, b) => {
+            const titleA = a.title.toLowerCase();
+            const titleB = b.title.toLowerCase();
+            return titleB.localeCompare(titleA);
+          });
+
+        case "year":
+          return items.sort((a, b) => {
+            const yearA = a.year || 0;
+            const yearB = b.year || 0;
+            return this.sortAscending ? yearA - yearB : yearB - yearA;
+          });
+
+        case "year_asc":
+          return items.sort((a, b) => {
+            const yearA = a.year || 0;
+            const yearB = b.year || 0;
+            return yearA - yearB;
+          });
+
+        case "rating":
+          return items.sort((a, b) => {
+            const ratingA = a.rating || 0;
+            const ratingB = b.rating || 0;
+            return this.sortAscending ? ratingA - ratingB : ratingB - ratingA;
+          });
+
+        case "rating_asc":
+          return items.sort((a, b) => {
+            const ratingA = a.rating || 0;
+            const ratingB = b.rating || 0;
+            return ratingA - ratingB;
+          });
+
+        default:
+          return items;
+      }
+    },
+
+    // Пагинированные элементы
+    paginatedItems() {
+      const start = (this.currentPage - 1) * this.itemsPerPage;
+      const end = start + this.itemsPerPage;
+      return this.sortedItems.slice(start, end);
+    },
+
+    // Пагинация
+    totalPages() {
+      return Math.ceil(this.filteredItems.length / this.itemsPerPage);
+    },
+
+    // Есть ли активные фильтры
+    hasActiveFilters() {
+      return (
+        this.searchQuery ||
+        this.filters.type !== "all" ||
+        this.filters.status !== "all"
+      );
+    },
+  },
+
+  watch: {
+    searchQuery() {
+      this.currentPage = 1;
+    },
+    filters: {
+      handler() {
+        this.currentPage = 1;
+      },
+      deep: true,
+    },
+    itemsPerPage() {
+      this.currentPage = 1;
+    },
+  },
+
+  async created() {
+    await this.checkConnection();
+    if (this.isConnected) {
+      await this.loadData();
     }
   },
-  
-  async created() {
-    await this.loadData()
-  },
-  
+
   methods: {
-    async loadData() {
-      this.loading = true
+    async checkConnection() {
       try {
-        const response = await fetch('/api/items')
-        if (response.ok) {
-          this.items = await response.json()
-          await this.loadStats()
-          
-          if (this.items.length > 0) {
-            this.showNotification('success', 'База данных', `Загружено ${this.items.length} записей`)
-          }
-        } else {
-          throw new Error('Ошибка сервера')
+        this.isConnected = await api.checkHealth();
+        if (!this.isConnected) {
+          this.showNotification(
+            "error",
+            "Ошибка соединения",
+            "Не удалось подключиться к серверу",
+          );
         }
       } catch (error) {
-        console.error('❌ Ошибка загрузки:', error)
-        this.showNotification('error', 'Ошибка базы', 'Не удалось подключиться к SQLite')
-      } finally {
-        this.loading = false
+        this.isConnected = false;
+        this.showNotification(
+          "error",
+          "Ошибка соединения",
+          "Не удалось подключиться к серверу",
+        );
       }
     },
-    
+
+    async loadData() {
+      this.loading = true;
+      try {
+        // console.log("Загрузка данных...");
+        this.items = await api.getItems();
+
+        // Проверьте первые записи
+        if (this.items.length > 0) {
+          // console.log("Первая запись:", this.items[0]);
+          // console.log("ID первой записи:", this.items[0].id);
+        }
+
+        await this.loadStats();
+      } catch (error) {
+        console.error("❌ Ошибка загрузки:", error);
+      } finally {
+        this.loading = false;
+      }
+    },
+
     async loadStats() {
       try {
-        const response = await fetch('/api/stats')
-        if (response.ok) {
-          const data = await response.json()
-          this.stats = {
-            total: data.total || 0,
-            movies: data.movies || 0,
-            books: data.books || 0,
-            series: data.series || 0
-          }
-        }
+        const data = await api.getStats();
+        this.stats = {
+          total: data.total || 0,
+          movies: data.movies || 0,
+          books: data.books || 0,
+          series: data.series || 0,
+        };
       } catch (error) {
-        console.error('Ошибка статистики:', error)
+        console.error("Ошибка статистики:", error);
       }
     },
-    
+
     async addNewMedia(newMedia) {
       try {
-        const response = await fetch('/api/items', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            ...newMedia,
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 9)
-          }),
-        })
-        
-        if (response.ok) {
-          await this.loadData()
-          this.showNotification('success', 'Успешно!', `"${newMedia.title}" добавлен в SQLite базу`)
-          this.showAddForm = false
-        } else {
-          throw new Error('Ошибка сервера')
+        // console.log("Добавление новой записи:", newMedia);
+
+        // Проверяем обязательные поля
+        if (!newMedia.title || newMedia.title.trim() === "") {
+          this.showNotification(
+            "error",
+            "Ошибка валидации",
+            "Название обязательно для заполнения",
+          );
+          return;
         }
+
+        const addedItem = await api.addItem(newMedia);
+        // console.log("Запись добавлена:", addedItem);
+
+        await this.loadData();
+
+        this.showNotification(
+          "success",
+          "Успешно!",
+          `"${newMedia.title}" добавлен в вашу коллекцию`,
+        );
+
+        this.showAddForm = false;
       } catch (error) {
-        console.error('Ошибка добавления:', error)
-        this.showNotification('error', 'Ошибка', 'Не удалось сохранить запись')
+        console.error("Ошибка добавления:", error);
+
+        if (
+          error.message?.includes("Сессия истекла") ||
+          error.message?.includes("401") ||
+          error.error?.includes("токен")
+        ) {
+          this.showNotification(
+            "warning",
+            "Сессия истекла",
+            "Пожалуйста, войдите снова",
+          );
+          setTimeout(() => {
+            this.logout();
+          }, 2000);
+          return;
+        }
+
+        this.showNotification(
+          "error",
+          "Ошибка",
+          error.message || "Не удалось сохранить запись",
+        );
       }
     },
-    
+
     editMedia(item) {
-      this.editingItem = { ...item }
+      // console.log("Редактирование записи:", item);
+      // console.log("ID записи:", item.id);
+      // console.log("Все данные:", JSON.parse(JSON.stringify(item))); // убираем Proxy
+
+      // Копируем данные, убедившись что ID есть
+      const itemCopy = {
+        ...item,
+        id: item.id || "",
+      };
+
+      this.editingItem = itemCopy;
     },
-    
+
     async updateMedia(updatedData) {
+      // ОСТАНОВИТЬ если это событие
+      if (updatedData instanceof Event || updatedData.type === "submit") {
+        console.error("❌ Получен SubmitEvent вместо данных");
+        return;
+      }
+
       try {
-        const response = await fetch(`/api/items/${updatedData.id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(updatedData),
-        })
-        
-        if (response.ok) {
-          await this.loadData()
-          this.showNotification('success', 'Обновлено!', `"${updatedData.title}" обновлен в базе`)
-          this.cancelEdit()
-        } else {
-          throw new Error('Ошибка сервера')
+        // console.log("Данные для обновления:", updatedData);
+
+        // Получаем ID из editingItem если его нет в updatedData
+        const itemId =
+          updatedData.id || (this.editingItem && this.editingItem.id);
+
+        if (!itemId) {
+          console.error("❌ Нет ID для обновления");
+          this.showNotification(
+            "error",
+            "Ошибка",
+            "Не удалось определить ID записи",
+          );
+          return;
         }
+
+        // Готовим данные для отправки
+        const dataToSend = {
+          title: updatedData.title?.trim() || "",
+          type: updatedData.type || "movie",
+          year: updatedData.year || null,
+          rating: updatedData.rating || 0,
+          status: updatedData.status || "planned",
+          genres: updatedData.genres || [],
+          poster: updatedData.poster || "",
+          review: updatedData.review || "",
+        };
+
+        // console.log("Отправка на сервер ID:", itemId);
+        // console.log("Данные:", dataToSend);
+
+        const response = await api.updateItem(itemId, dataToSend);
+
+        // console.log("Ответ сервера:", response);
+
+        await this.loadData();
+
+        this.showNotification(
+          "success",
+          "Обновлено!",
+          `"${dataToSend.title}" обновлен`,
+        );
+
+        this.cancelEdit();
       } catch (error) {
-        console.error('Ошибка обновления:', error)
-        this.showNotification('error', 'Ошибка', 'Не удалось обновить запись')
+        console.error("Ошибка обновления:", error);
+        this.showNotification(
+          "error",
+          "Ошибка",
+          error.message || "Не удалось обновить запись",
+        );
       }
     },
-    
+
     cancelEdit() {
-      this.editingItem = null
+      this.editingItem = null;
     },
-    
-    showDeleteConfirmation(item) {
-      this.itemToDelete = item.id
-      this.deleteConfirmDetails = {
-        label: 'Запись',
-        value: item.title
+
+    // Фильтрация и сортировка
+    toggleFilter(filterName, value) {
+      this.filters[filterName] =
+        this.filters[filterName] === value ? "all" : value;
+    },
+
+    toggleSortOrder() {
+      this.sortAscending = !this.sortAscending;
+    },
+
+    resetFilters() {
+      this.searchQuery = "";
+      this.filters = {
+        type: "all",
+        status: "all",
+      };
+      this.sortBy = "date_added";
+      this.sortAscending = false;
+      this.currentPage = 1;
+    },
+
+    getFilterTypeLabel(type) {
+      const found = this.filterTypes.find((t) => t.value === type);
+      return found ? `${found.icon} ${found.label}` : type;
+    },
+
+    getFilterStatusLabel(status) {
+      const found = this.filterStatuses.find((s) => s.value === status);
+      return found ? found.label : status;
+    },
+
+    // Пагинация
+    prevPage() {
+      if (this.currentPage > 1) {
+        this.currentPage--;
       }
-      this.showDeleteConfirm = true
     },
-    
+
+    nextPage() {
+      if (this.currentPage < this.totalPages) {
+        this.currentPage++;
+      }
+    },
+
+    showDeleteConfirmation(item) {
+      this.itemToDelete = item.id;
+      this.deleteConfirmDetails = {
+        label: "Запись",
+        value: item.title,
+      };
+      this.showDeleteConfirm = true;
+    },
+
     async confirmDelete() {
-      const item = this.items.find(item => item.id === this.itemToDelete)
+      const item = this.items.find((item) => item.id === this.itemToDelete);
       if (item) {
         try {
-          const response = await fetch(`/api/items/${this.itemToDelete}`, {
-            method: 'DELETE'
-          })
-          
-          if (response.ok) {
-            await this.loadData()
-            this.showNotification('success', 'Удалено!', `"${item.title}" удален из SQLite базы`)
-          } else {
-            throw new Error('Ошибка сервера')
-          }
+          // console.log("Удаление записи:", item.title);
+          await api.deleteItem(this.itemToDelete);
+          // console.log("Запись удалена");
+
+          await this.loadData();
+          this.showNotification(
+            "success",
+            "Удалено!",
+            `"${item.title}" удален из вашей коллекции`,
+          );
         } catch (error) {
-          console.error('Ошибка удаления:', error)
-          this.showNotification('error', 'Ошибка', 'Не удалось удалить запись')
+          console.error("Ошибка удаления:", error);
+
+          if (
+            error.message?.includes("Сессия истекла") ||
+            error.message?.includes("401") ||
+            error.error?.includes("токен")
+          ) {
+            this.showNotification(
+              "warning",
+              "Сессия истекла",
+              "Пожалуйста, войдите снова",
+            );
+            setTimeout(() => {
+              this.logout();
+            }, 2000);
+            return;
+          }
+
+          this.showNotification(
+            "error",
+            "Ошибка",
+            error.message || "Не удалось удалить запись",
+          );
         }
       }
-      this.cancelDelete()
+      this.cancelDelete();
     },
-    
+
     cancelDelete() {
-      this.showDeleteConfirm = false
-      this.itemToDelete = null
-      this.deleteConfirmDetails = null
+      this.showDeleteConfirm = false;
+      this.itemToDelete = null;
+      this.deleteConfirmDetails = null;
     },
-    
+
     async exportData() {
       try {
-        const response = await fetch('/api/items')
-        if (response.ok) {
-          const items = await response.json()
-          
-          const data = {
-            version: '1.0',
-            exportedAt: new Date().toISOString(),
-            totalItems: items.length,
-            items: items
-          }
-          
-          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-          const url = window.URL.createObjectURL(blob)
-          const link = document.createElement('a')
-          link.href = url
-          link.download = `media-journal-backup-${new Date().toISOString().split('T')[0]}.json`
-          link.click()
-          window.URL.revokeObjectURL(url)
-          
-          this.showNotification('success', 'Экспорт', `Данные экспортированы (${items.length} записей)`)
-        }
+        const items = await api.getItems();
+
+        const data = {
+          version: "1.0",
+          exportedAt: new Date().toISOString(),
+          totalItems: items.length,
+          items: items,
+        };
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+          type: "application/json",
+        });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `media-journal-backup-${new Date().toISOString().split("T")[0]}.json`;
+        link.click();
+        window.URL.revokeObjectURL(url);
+
+        this.showNotification(
+          "success",
+          "Экспорт",
+          `Данные экспортированы (${items.length} записей)`,
+        );
       } catch (error) {
-        console.error('Ошибка экспорта:', error)
-        this.showNotification('error', 'Ошибка', 'Не удалось экспортировать данные')
+        console.error("Ошибка экспорта:", error);
+        this.showNotification(
+          "error",
+          "Ошибка",
+          "Не удалось экспортировать данные",
+        );
       }
     },
-    
-    handleFormError(errorMessage) {
-      this.showNotification('error', 'Ошибка', errorMessage)
+
+    async logout() {
+      try {
+        // Подтверждение выхода
+        if (!confirm("Вы уверены, что хотите выйти из аккаунта?")) {
+          return;
+        }
+
+        // console.log("Выход из аккаунта...");
+
+        // Отправляем запрос на сервер
+        await api.logout();
+
+        // console.log("Успешный выход");
+
+        // Показываем уведомление
+        this.showNotification(
+          "success",
+          "До свидания!",
+          "Вы успешно вышли из системы",
+        );
+
+        // Задержка перед переходом
+        setTimeout(() => {
+          this.$router.push("/login");
+        }, 1500);
+      } catch (error) {
+        console.error("Ошибка при выходе:", error);
+
+        // Все равно очищаем локальные данные
+        api.clearTokens();
+
+        // Перенаправляем на логин
+        this.$router.push("/login");
+      }
     },
-    
+
+    handleFormError(errorMessage) {
+      this.showNotification("error", "Ошибка формы", errorMessage);
+    },
+
     showNotification(type, title, message) {
       this.notification = {
         visible: true,
         type,
         title,
-        message
+        message,
+      };
+
+      if (type === "success" || type === "info") {
+        setTimeout(() => {
+          this.hideNotification();
+        }, 5000);
       }
     },
-    
+
     hideNotification() {
-      this.notification.visible = false
-    }
-  }
-}
+      this.notification.visible = false;
+    },
+  },
+};
 </script>
 
 <style scoped>
-/* Стили HomeView - как в предыдущем сообщении */
+/* Стили остаются такими же как в вашем исходном коде */
 .home {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 20px 20px 80px 20px;
   min-height: 100vh;
 }
 
@@ -396,14 +905,35 @@ export default {
   color: white;
 }
 
+.db-btn.reload:hover:not(:disabled) {
+  background: #5a6268;
+}
+
 .db-btn.export {
   background: #28a745;
   color: white;
 }
 
+.db-btn.export:hover:not(:disabled) {
+  background: #218838;
+}
+
 .db-btn.stats {
   background: #ffc107;
   color: #212529;
+}
+
+.db-btn.stats:hover:not(:disabled) {
+  background: #e0a800;
+}
+
+.db-btn.logout {
+  background: #dc3545;
+  color: white;
+}
+
+.db-btn.logout:hover:not(:disabled) {
+  background: #c82333;
 }
 
 .db-status {
@@ -422,11 +952,15 @@ export default {
   background: white;
   padding: 6px 12px;
   border-radius: 20px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .db-stat.connected {
   color: #28a745;
+}
+
+.db-stat.disconnected {
+  color: #dc3545;
 }
 
 .btn-spinner {
@@ -441,7 +975,9 @@ export default {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .collection {
@@ -548,7 +1084,7 @@ export default {
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 15px;
   }
-  
+
   .add-btn {
     bottom: 20px;
     right: 20px;
@@ -556,5 +1092,220 @@ export default {
     height: 50px;
     font-size: 28px;
   }
+}
+
+/* Стили для фильтров и сортировки */
+.controls-panel {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 30px;
+}
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.search-box {
+  position: relative;
+}
+
+.search-input {
+  width: 100%;
+  padding: 12px 40px 12px 15px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+.clear-search {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #666;
+  font-size: 20px;
+}
+
+.filter-group,
+.sort-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filter-group label,
+.sort-group label {
+  font-weight: 500;
+  min-width: 60px;
+}
+
+.filter-buttons {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.filter-buttons button {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.filter-buttons button:hover{
+    background: #e5e5e5;
+}
+
+.filter-buttons button.active {
+  background: #4caf50;
+  color: white;
+  border-color: #4caf50;
+}
+
+.sort-select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}
+
+.sort-select:hover{
+  background: #e5e5e5;
+}
+
+.sort-order-btn {
+  padding: 0px 10px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 23px;
+  height: 35px;
+}
+
+.sort-order-btn:hover{
+  background: #e5e5e5;
+}
+
+.reset-filters-btn {
+  padding: 8px 16px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  align-self: flex-start;
+}
+
+.active-filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #ddd;
+}
+
+.active-filters-label {
+  font-weight: 500;
+}
+
+.filter-tag {
+  background: #e3f2fd;
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.filter-tag button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: #666;
+}
+
+.no-results {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.no-results-icon {
+  font-size: 4rem;
+  margin-bottom: 20px;
+  opacity: 0.5;
+}
+
+.no-results h3 {
+  font-size: 1.5rem;
+  margin-bottom: 10px;
+  color: #495057;
+}
+
+.no-results p {
+  color: #6c757d;
+  margin-bottom: 25px;
+}
+
+.btn-reset-filters {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.pagination-btn {
+  padding: 8px 16px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
+  font-size: 14px;
+  color: #666;
+}
+
+.page-size-select {
+  padding: 6px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  font-size: 14px;
 }
 </style>

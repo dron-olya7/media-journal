@@ -2,19 +2,7 @@
   <div class="about">
     <h1>🎬 О MediaJournal</h1>
     <p>Твой личный трекер фильмов, книг и сериалов с SQLite базой данных!</p>
-    
-    <div class="features">
-      <h2>✨ Возможности</h2>
-      <ul>
-        <li>✅ Настоящая SQLite база данных</li>
-        <li>✅ Редактирование и удаление записей</li>
-        <li>✅ Красивые попапы вместо alert</li>
-        <li>✅ Поиск и фильтрация</li>
-        <li>✅ Экспорт/импорт данных</li>
-      </ul>
-    </div>
-    
-    <button class="back-btn" @click="$router.push('/')">← На главную</button>
+
   </div>
 </template>
 
